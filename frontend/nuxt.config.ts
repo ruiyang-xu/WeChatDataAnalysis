@@ -6,6 +6,11 @@ const devProxyTarget = `http://127.0.0.1:${backendPort}/api`
 
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
+  // The app is shipped as a static SPA (`nuxt generate`) and loaded by
+  // Electron / FastAPI as static files. Running the dev server in SSR mode
+  // adds no value and trips on browser-only globals (e.g. `localStorage`)
+  // that some upstream libs touch at import time.
+  ssr: false,
   devtools: { enabled: false },
   experimental: {
     // This app does not use Nuxt route rules on the client, so disabling
