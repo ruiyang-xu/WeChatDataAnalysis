@@ -4,10 +4,43 @@
 
 import logging
 import os
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+
+
+# Patterns that strongly suggest a secret is being written to the log. The
+# filter below replaces the matched value with a redacted placeholder so a
+# stray ``logger.info("aes_key=%s", value)`` cannot leak the full key.
+_SECRET_KV_PATTERN = re.compile(
+    r"((?:aes[_-]?key|db[_-]?key|image[_-]?aes[_-]?key|image[_-]?xor[_-]?key|"
+    r"xor[_-]?key|password|secret|token)\s*[=:]\s*)"
+    r"([0-9A-Fa-fxX]{8,}|[A-Za-z0-9+/=_-]{8,})",
+    re.IGNORECASE,
+)
+
+
+def _redact_secret_text(value: str) -> str:
+    if not value:
+        return value
+    return _SECRET_KV_PATTERN.sub(lambda m: f"{m.group(1)}<redacted>", value)
+
+
+class _SecretRedactionFilter(logging.Filter):
+    """Best-effort scrub of obvious secrets in formatted log messages."""
+
+    def filter(self, record: logging.LogRecord) -> bool:  # noqa: D401
+        try:
+            message = record.getMessage()
+        except Exception:
+            return True
+        sanitized = _redact_secret_text(message)
+        if sanitized != message:
+            record.msg = sanitized
+            record.args = ()
+        return True
 
 
 class ColoredFormatter(logging.Formatter):
@@ -150,10 +183,13 @@ class WeChatLogger:
             datefmt='%Y-%m-%d %H:%M:%S'
         )
 
+        secret_filter = _SecretRedactionFilter()
+
         # 文件处理器
         file_handler = logging.FileHandler(self.log_file, encoding='utf-8')
         file_handler.setFormatter(file_formatter)
         file_handler.setLevel(level)
+        file_handler.addFilter(secret_filter)
 
         # 控制台处理器
         console_handler = None
@@ -161,6 +197,7 @@ class WeChatLogger:
             console_handler = logging.StreamHandler(sys.stdout)
             console_handler.setFormatter(console_formatter)
             console_handler.setLevel(level)
+            console_handler.addFilter(secret_filter)
         
         # 配置根日志器
         root_logger.setLevel(level)

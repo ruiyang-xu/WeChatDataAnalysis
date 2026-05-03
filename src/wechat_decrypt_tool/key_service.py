@@ -18,7 +18,6 @@ import re
 import random
 import logging
 import asyncio
-import httpx
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
@@ -411,12 +410,14 @@ async def get_image_key_integrated_workflow(
             )
             return k
 
-    # 2. 本地提取失败或不匹配，尝试远程解析
-    logger.info("[image_key] 本地算法未命中，尝试远程 API 解析")
-    return await fetch_and_save_remote_keys(
-        account,
-        wxid_dir=wxid_dir,
-        db_storage_path=db_storage_path,
+    # 2. 本地提取失败或不匹配；远程解析已被永久禁用，返回明确错误
+    logger.info(
+        "[image_key] 本地算法未命中（target_wxid=%s），远程提取已禁用",
+        target_account_wxid or "<unspecified>",
+    )
+    raise RuntimeError(
+        "本地图片密钥提取未命中目标账号，且远程密钥服务已禁用以保护隐私。\n"
+        "请确认微信已登录到目标账号、数据目录正确，然后重试本地提取。"
     )
 
 
@@ -426,89 +427,15 @@ async def fetch_and_save_remote_keys(
         wxid_dir: Optional[str] = None,
         db_storage_path: Optional[str] = None,
 ) -> Dict[str, Any]:
-    wx_id_dir = _resolve_wxid_dir_for_image_key(
-        account,
-        wxid_dir=wxid_dir,
-        db_storage_path=db_storage_path,
+    """Remote key fetching is permanently disabled.
+
+    Earlier builds uploaded the user's WeChat ``global_config`` / ``global_config.crc``
+    binary blobs together with the wxid to a third-party endpoint. To keep all
+    user data strictly local, this code path is now refused. Image keys must be
+    obtained via the local ``wx_key`` algorithm only.
+    """
+    raise RuntimeError(
+        "远程密钥提取已禁用以保护您的隐私。\n"
+        "请使用本地算法（wx_key）提取图片密钥；如本地提取失败，"
+        "请检查微信版本/数据目录或在登录后重试，所有数据将仅保留在本机。"
     )
-    wxid = wx_id_dir.name
-
-    url = "https://view.free.c3o.re/api/key"
-    data = {"weixinIDFolder": wxid}
-
-    logger.info(
-        "[image_key] 准备请求远程密钥：request_account=%s resolved_account=%s wxid_dir=%s db_storage_path=%s",
-        str(account or "").strip(),
-        wxid,
-        str(wx_id_dir),
-        str(db_storage_path or "").strip(),
-    )
-
-    try:
-        blob1_bytes = get_wechat_internal_global_config(wx_id_dir, file_name1="global_config")
-        blob2_bytes = get_wechat_internal_global_config(wx_id_dir, file_name1="global_config.crc")
-    except Exception as e:
-        raise RuntimeError(f"读取微信内部文件失败: {e}")
-    logger.info(
-        "[image_key] 远程请求输入文件已读取：wxid=%s global_config_bytes=%s crc_bytes=%s",
-        wxid,
-        len(blob1_bytes),
-        len(blob2_bytes),
-    )
-
-    files = {
-        'fileBytes': ('file', blob1_bytes, 'application/octet-stream'),
-        'crcBytes': ('file.crc', blob2_bytes, 'application/octet-stream'),
-    }
-
-    async with httpx.AsyncClient(timeout=30) as client:
-        logger.info("[image_key] 向云端 API 发送请求：url=%s wxid=%s", url, wxid)
-        response = await client.post(url, data=data, files=files)
-
-    if response.status_code != 200:
-        raise RuntimeError(f"云端服务器错误: {response.status_code} - {response.text[:100]}")
-
-    config = response.json()
-    if not config:
-        raise RuntimeError("云端解析失败: 返回数据为空")
-    logger.info(
-        "[image_key] 收到远程响应：status_code=%s keys=%s nick_name=%s",
-        response.status_code,
-        {
-            "xor_key": str(config.get("xorKey", config.get("xor_key", ""))),
-            "aes_key": _summarize_aes_key(config.get("aesKey", config.get("aes_key", ""))),
-        },
-        str(config.get("nickName", config.get("nick_name", ""))),
-    )
-
-    # 新 API 的字段兼容处理
-    xor_raw = str(config.get("xorKey", config.get("xor_key", "")))
-    aes_val = str(config.get("aesKey", config.get("aes_key", "")))
-
-    try:
-        if xor_raw.startswith("0x"):
-            xor_int = int(xor_raw, 16)
-        else:
-            xor_int = int(xor_raw)
-        xor_hex_str = f"0x{xor_int:02X}"
-    except:
-        xor_hex_str = xor_raw
-
-    upsert_account_keys_in_store(
-        account=wxid,
-        image_xor_key=xor_hex_str,
-        image_aes_key=aes_val
-    )
-    logger.info(
-        "[image_key] 远程密钥已保存：account=%s xor_key=%s aes_key=%s",
-        wxid,
-        xor_hex_str,
-        _summarize_aes_key(aes_val),
-    )
-
-    return {
-        "wxid": wxid,
-        "xor_key": xor_hex_str,
-        "aes_key": aes_val,
-        "nick_name": config.get("nickName", config.get("nick_name", ""))
-    }

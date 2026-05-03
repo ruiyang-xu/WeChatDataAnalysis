@@ -36,6 +36,7 @@ from .routers.sns_export import router as _sns_export_router
 from .routers.wechat_detection import router as _wechat_detection_router
 from .routers.wrapped import router as _wrapped_router
 from .request_logging import log_server_errors_middleware
+from .security import LocalOnlyAccessMiddleware, get_allowed_origin_regex
 from .wcdb_realtime import WCDB_REALTIME, shutdown as _wcdb_shutdown
 from .img_helper import IMG_HELPER
 from .routers.biz import router as _biz_router
@@ -50,14 +51,22 @@ app = FastAPI(
 # 设置自定义路由类
 app.router.route_class = PathFixRoute
 
-# Enable CORS for React frontend
+# CORS: only allow same-origin and the loopback hosts that the local frontend
+# uses. ``allow_credentials`` is left False because all data on this server is
+# already considered sensitive and we do not want a misconfigured origin to be
+# able to read responses with cookies attached.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origin_regex=get_allowed_origin_regex(),
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Reject requests whose TCP peer is non-loopback or whose ``Host`` header is
+# not on the allow-list (DNS-rebinding defense). Must be the outermost
+# middleware so it runs before CORS preflight handling and any route logic.
+app.add_middleware(LocalOnlyAccessMiddleware)
 
 
 @app.middleware("http")
@@ -223,7 +232,8 @@ if __name__ == "__main__":
     import uvicorn
 
     from .runtime_settings import read_effective_backend_port
+    from .security import resolve_safe_bind_host
 
-    host = os.environ.get("WECHAT_TOOL_HOST", "127.0.0.1")
+    host = resolve_safe_bind_host(default="127.0.0.1")
     port, _ = read_effective_backend_port(default=10392)
     uvicorn.run(app, host=host, port=port)

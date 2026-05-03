@@ -1,11 +1,23 @@
 import datetime
 import json
+import os
+import stat
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
 from .app_paths import get_account_keys_path
 
 _KEY_STORE_PATH = get_account_keys_path()
+
+
+def _restrict_permissions(path: Path) -> None:
+    """Best-effort chmod 0o600 on POSIX. No-op on platforms that don't support it."""
+    if os.name != "posix":
+        return
+    try:
+        os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+    except OSError:
+        pass
 
 
 def normalize_key_store_path(path_value: Optional[str]) -> str:
@@ -43,7 +55,10 @@ def _atomic_write_json(path: Path, payload: Any) -> None:
         json.dumps(payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    # Lock down the temp file before rename so the final file inherits 0o600.
+    _restrict_permissions(tmp)
     tmp.replace(path)
+    _restrict_permissions(path)
 
 
 def load_account_keys_store() -> dict[str, Any]:

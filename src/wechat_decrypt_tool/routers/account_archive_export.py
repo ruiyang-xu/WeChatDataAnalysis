@@ -463,9 +463,30 @@ async def export_account_archive(req: AccountArchiveExportRequest):
     return {"status": "success", "job": job.to_public_dict()}
 
 
-@router.get("/api/account/archive_export/download", summary="Download account archive by file path")
-async def download_account_archive(path: str):
-    zip_path = Path(str(path or "").strip()).expanduser().resolve()
+@router.get("/api/account/archive_export/download", summary="Download account archive by export id")
+async def download_account_archive(export_id: str):
+    """Stream the archive associated with ``export_id``.
+
+    Earlier versions accepted an arbitrary ``path`` query parameter, which let
+    a caller download any ``.zip`` file readable by the backend process. We
+    now resolve the path from the in-memory job map keyed by ``export_id``,
+    which is generated server-side and never derived from user input.
+    """
+    job = _get_job(export_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Export not found.")
+    if job.status != "done":
+        raise HTTPException(status_code=409, detail="Export is not ready for download.")
+
+    raw_zip_path = str(job.zip_path or "").strip()
+    if not raw_zip_path:
+        raise HTTPException(status_code=404, detail="Export file not found.")
+
+    try:
+        zip_path = Path(raw_zip_path).resolve()
+    except OSError:
+        raise HTTPException(status_code=404, detail="Export file not found.")
+
     if not zip_path.exists() or not zip_path.is_file():
         raise HTTPException(status_code=404, detail="Export file not found.")
     if zip_path.suffix.lower() != ".zip":

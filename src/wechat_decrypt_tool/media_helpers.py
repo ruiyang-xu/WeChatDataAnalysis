@@ -3089,10 +3089,17 @@ def _save_media_keys(account_dir: Path, xor_key: int, aes_key16: Optional[bytes]
             "xor": int(xor_key),
             "aes": aes_str,
         }
-        (account_dir / "_media_keys.json").write_text(
+        target = account_dir / "_media_keys.json"
+        target.write_text(
             json.dumps(payload, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+        # Restrict to owner read/write on POSIX. No-op on Windows.
+        if os.name == "posix":
+            try:
+                os.chmod(target, 0o600)
+            except OSError:
+                pass
     except Exception:
         pass
 

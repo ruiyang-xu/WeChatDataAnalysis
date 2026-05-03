@@ -560,9 +560,8 @@ const startExport = async () => {
     } else {
       task.value.message = '正在保存到浏览器目录...'
       task.value.progress = 98
-      const zipPath = String(finalJob.zipPath || '').trim()
       const query = new URLSearchParams()
-      query.set('path', zipPath)
+      query.set('export_id', currentExportId.value)
       const downloadUrl = `${apiBase}/account/archive_export/download?${query.toString()}`
       const downloadResponse = await fetch(downloadUrl)
       if (!downloadResponse.ok) {

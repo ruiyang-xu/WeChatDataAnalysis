@@ -12,10 +12,11 @@ import uvicorn
 import os
 from pathlib import Path
 from wechat_decrypt_tool.runtime_settings import read_effective_backend_port
+from wechat_decrypt_tool.security import resolve_safe_bind_host
 
 def main():
     """启动微信解密工具API服务"""
-    host = os.environ.get("WECHAT_TOOL_HOST", "127.0.0.1")
+    host = resolve_safe_bind_host(default="127.0.0.1")
     port, port_source = read_effective_backend_port(default=10392)
     access_host = "127.0.0.1" if host in {"0.0.0.0", "::"} else host
 
