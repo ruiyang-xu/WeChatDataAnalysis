@@ -207,14 +207,13 @@ async def get_saved_keys(
         "db_key_blocked_reason": db_key_blocked_reason,
     }
     logger.info(
-        "[keys] get_saved_keys done: account=%s db_key_present=%s db_key_store_account=%s db_key_source_wxid_dir=%s blocked_reason=%s xor_key=%s aes_key=%s updated_at=%s",
+        "[keys] get_saved_keys done: account=%s db_key_present=%s db_key_store_account=%s blocked_reason=%s xor_key_present=%s aes_key_present=%s updated_at=%s",
         str(account_name or ""),
         bool(result["db_key"]),
         result["db_key_store_account"],
-        result["db_key_source_wxid_dir"],
         result["db_key_blocked_reason"],
-        result["image_xor_key"],
-        _summarize_aes_key(result["image_aes_key"]),
+        bool(result["image_xor_key"]),
+        bool(result["image_aes_key"]),
         result["updated_at"],
     )
 
@@ -289,11 +288,11 @@ async def get_image_key(
             wxid_dir=wxid_dir,
         )
         logger.info(
-            "[keys] get_image_key done: request_account=%s response_account=%s xor_key=%s aes_key=%s",
+            "[keys] get_image_key done: request_account=%s response_account=%s xor_key_present=%s aes_key_present=%s",
             str(account or "").strip(),
             str(result.get("wxid") or "").strip(),
-            str(result.get("xor_key") or "").strip(),
-            _summarize_aes_key(str(result.get("aes_key") or "").strip()),
+            bool(str(result.get("xor_key") or "").strip()),
+            bool(str(result.get("aes_key") or "").strip()),
         )
 
         return {
